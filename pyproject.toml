@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tsolc"
+version = "0.1.0"
+description = "TSol Compiler - Transpiles Sol language to C"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "stefand-0", email = "stefan.dragan95@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Compilers",
+]
+keywords = ["compiler", "transpiler", "sol", "c", "tsol"]
+requires-python = ">=3.10"
+
+[project.scripts]
+tsolc = "transpiler.main:main"
+
+[project.urls]
+Homepage = "https://github.com/stefand-0/tsol"
+Repository = "https://github.com/stefand-0/tsol"
