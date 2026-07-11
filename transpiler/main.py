@@ -36,18 +36,17 @@ class TokenType(Enum):
     ELSEIF = auto()
     ELSE = auto()
     FOR = auto()
-    END = auto()
+    WHILE = auto()
     STRUCT = auto()
     GET = auto()
     MAIN = auto()
     RETURN = auto()
     BREAK = auto()
     CONTINUE = auto()
+    C = auto()
 
     ASSIGN = auto()
     COMMA = auto()
-    LBRACE = auto()
-    RBRACE = auto()
     LPAREN = auto()
     RPAREN = auto()
     SEMICOLON = auto()
@@ -70,8 +69,12 @@ class TokenType(Enum):
     NOT = auto()
     DOT = auto()
     COLON = auto()
+    QUESTION = auto()
     ARROW = auto()
 
+    INDENT = auto()
+    DEDENT = auto()
+    NEWLINE = auto()
     EOF = auto()
 
 KEYWORDS = {
@@ -82,13 +85,14 @@ KEYWORDS = {
     'elseif': TokenType.ELSEIF,
     'else': TokenType.ELSE,
     'for': TokenType.FOR,
-    'end': TokenType.END,
+    'while': TokenType.WHILE,
     'struct': TokenType.STRUCT,
     'get': TokenType.GET,
     'main': TokenType.MAIN,
     'return': TokenType.RETURN,
     'break': TokenType.BREAK,
     'continue': TokenType.CONTINUE,
+    'C': TokenType.C,
 }
 
 TYPES = {
@@ -109,7 +113,7 @@ class Token:
         return f"Token({self.type.name}, {self.value!r}, line={self.line}, col={self.column})"
 
 # =============================================================================
-# LEXER
+# LEXER (with indentation-based blocks)
 # =============================================================================
 
 class Lexer:
@@ -119,6 +123,7 @@ class Lexer:
         self.line = 1
         self.column = 1
         self.tokens = []
+        self.indent_stack = [0]
 
     def error(self, msg: str):
         raise SyntaxError(f"{msg} at line {self.line}, column {self.column}")
@@ -145,6 +150,13 @@ class Lexer:
     def tokenize(self) -> List[Token]:
         while self.position < len(self.source):
             char = self.peek()
+
+            if char == '\n':
+                self.advance()
+                self.add_token(TokenType.NEWLINE)
+                # Handle indentation after newline
+                self._handle_indent()
+                continue
 
             if char.isspace():
                 self.advance()
@@ -211,8 +223,6 @@ class Lexer:
 
             single_tokens = {
                 ',': TokenType.COMMA,
-                '{': TokenType.LBRACE,
-                '}': TokenType.RBRACE,
                 '(': TokenType.LPAREN,
                 ')': TokenType.RPAREN,
                 ';': TokenType.SEMICOLON,
@@ -228,6 +238,7 @@ class Lexer:
                 '!': TokenType.NOT,
                 '.': TokenType.DOT,
                 ':': TokenType.COLON,
+                '?': TokenType.QUESTION,
             }
             if char in single_tokens:
                 self.advance()
@@ -296,8 +307,39 @@ class Lexer:
 
             self.error(f"Unexpected character: {char!r}")
 
+        # Emit remaining DEDENTs
+        while len(self.indent_stack) > 1:
+            self.indent_stack.pop()
+            self.add_token(TokenType.DEDENT)
+
         self.add_token(TokenType.EOF, None)
         return self.tokens
+
+    def _handle_indent(self):
+        """Handle indentation after a newline."""
+        indent = 0
+        while self.position < len(self.source) and self.peek() == ' ':
+            indent += 1
+            self.advance()
+        
+        if self.position < len(self.source) and self.peek() == '\n':
+            # Blank line, skip
+            return
+        
+        if self.position < len(self.source) and self.peek() == '/':
+            # Comment line, don't change indent
+            return
+
+        current_indent = self.indent_stack[-1]
+        if indent > current_indent:
+            self.indent_stack.append(indent)
+            self.add_token(TokenType.INDENT)
+        elif indent < current_indent:
+            while indent < self.indent_stack[-1]:
+                self.indent_stack.pop()
+                self.add_token(TokenType.DEDENT)
+            if indent != self.indent_stack[-1]:
+                self.error("Inconsistent indentation")
 
 # =============================================================================
 # AST NODES
@@ -355,6 +397,11 @@ class ForStmt:
     body: Block
 
 @dataclass
+class WhileStmt:
+    condition: Any
+    body: Block
+
+@dataclass
 class ForEachStmt:
     var_name: str
     iterable: Any
@@ -377,6 +424,10 @@ class ExprStmt:
     expr: Any
 
 @dataclass
+class CRawStmt:
+    code: str
+
+@dataclass
 class BinaryOp:
     op: str
     left: Any
@@ -386,6 +437,12 @@ class BinaryOp:
 class UnaryOp:
     op: str
     operand: Any
+
+@dataclass
+class TernaryOp:
+    condition: Any
+    then_expr: Any
+    else_expr: Any
 
 @dataclass
 class CallExpr:
@@ -431,7 +488,7 @@ class ArrayLiteral:
     elements: List[Any]
 
 # =============================================================================
-# PARSER
+# PARSER (indentation-based)
 # =============================================================================
 
 class Parser:
@@ -465,6 +522,10 @@ class Parser:
     def match(self, *types: TokenType) -> bool:
         return self.current().type in types
 
+    def skip_newlines(self):
+        while self.match(TokenType.NEWLINE):
+            self.advance()
+
     def parse_identifier(self) -> Token:
         if self.match(TokenType.IDENTIFIER, TokenType.MAIN, TokenType.GET):
             return self.advance()
@@ -472,8 +533,10 @@ class Parser:
 
     def parse(self) -> Program:
         declarations = []
+        self.skip_newlines()
         while not self.match(TokenType.EOF):
             declarations.append(self.parse_declaration())
+            self.skip_newlines()
         return Program(declarations)
 
     def parse_declaration(self):
@@ -494,21 +557,23 @@ class Parser:
         self.expect(TokenType.LPAREN)
         path = self.expect(TokenType.STRING).value
         self.expect(TokenType.RPAREN)
-        self.expect(TokenType.SEMICOLON)
         return ImportStmt(path)
 
     def parse_struct_decl(self, is_pub: bool) -> StructDecl:
         self.expect(TokenType.STRUCT)
         name = self.parse_identifier().value
-        self.expect(TokenType.LBRACE)
+        self.expect(TokenType.NEWLINE)
+        self.expect(TokenType.INDENT)
         fields = []
-        while not self.match(TokenType.RBRACE):
-            # C-style: type name;
+        while not self.match(TokenType.DEDENT, TokenType.EOF):
+            self.skip_newlines()
+            if self.match(TokenType.DEDENT, TokenType.EOF):
+                break
             ftype = self.parse_type()
             fname = self.parse_identifier().value
-            self.expect(TokenType.SEMICOLON)
             fields.append((fname, ftype))
-        self.expect(TokenType.RBRACE)
+            self.skip_newlines()
+        self.expect(TokenType.DEDENT)
         return StructDecl(name, fields, is_pub)
 
     def parse_func_decl(self, is_pub: bool) -> FuncDecl:
@@ -527,13 +592,13 @@ class Parser:
             self.advance()
             return_type = self.parse_type()
 
+        self.expect(TokenType.NEWLINE)
         body = self.parse_block()
         return FuncDecl(name, params, return_type, body, is_pub)
 
     def parse_param(self) -> Tuple[str, str]:
         if self.match(TokenType.IN):
             self.advance()
-        # C-style: type name
         ptype = self.parse_type()
         name = self.parse_identifier().value
         return (name, ptype)
@@ -552,11 +617,15 @@ class Parser:
         return base
 
     def parse_block(self) -> Block:
-        self.expect(TokenType.LBRACE)
+        self.expect(TokenType.INDENT)
         statements = []
-        while not self.match(TokenType.RBRACE):
+        while not self.match(TokenType.DEDENT, TokenType.EOF):
+            self.skip_newlines()
+            if self.match(TokenType.DEDENT, TokenType.EOF):
+                break
             statements.append(self.parse_statement())
-        self.expect(TokenType.RBRACE)
+            self.skip_newlines()
+        self.expect(TokenType.DEDENT)
         return Block(statements)
 
     def parse_statement(self):
@@ -564,22 +633,24 @@ class Parser:
             return self.parse_if_stmt()
         if self.match(TokenType.FOR):
             return self.parse_for_stmt()
+        if self.match(TokenType.WHILE):
+            return self.parse_while_stmt()
         if self.match(TokenType.OUT):
-            return self.parse_return_stmt()
+            return self.parse_out_stmt()
         if self.match(TokenType.RETURN):
             return self.parse_return_stmt()
         if self.match(TokenType.BREAK):
             self.advance()
-            self.expect(TokenType.SEMICOLON)
             return BreakStmt()
         if self.match(TokenType.CONTINUE):
             self.advance()
-            self.expect(TokenType.SEMICOLON)
             return ContinueStmt()
         if self.match(TokenType.GET):
             return self.parse_import_stmt()
+        if self.match(TokenType.C):
+            return self.parse_c_raw_stmt()
 
-        # Variable declaration: type name -> value;  OR  name type -> value;
+        # Variable declaration or expression
         if self.match(TokenType.IDENTIFIER, TokenType.MAIN, TokenType.GET, TokenType.TYPE):
             if self.peek(1).type == TokenType.TYPE or self.peek(1).type == TokenType.IDENTIFIER:
                 return self.parse_var_decl()
@@ -587,18 +658,13 @@ class Parser:
             if self.match(TokenType.ASSIGN):
                 self.advance()
                 value = self.parse_expression()
-                self.expect(TokenType.SEMICOLON)
                 return Assignment(expr, value)
-            self.expect(TokenType.SEMICOLON)
             return ExprStmt(expr)
 
         expr = self.parse_expression()
-        self.expect(TokenType.SEMICOLON)
         return ExprStmt(expr)
 
     def parse_var_decl(self) -> VarDecl:
-        # C-style: type name -> value;  (primary)
-        # Also supports: name type -> value;  (legacy)
         if self.match(TokenType.TYPE):
             vtype = self.parse_type()
             name = self.parse_identifier().value
@@ -609,24 +675,27 @@ class Parser:
         if self.match(TokenType.ASSIGN):
             self.advance()
             init = self.parse_expression()
-        self.expect(TokenType.SEMICOLON)
         return VarDecl(name, vtype, init)
 
     def parse_if_stmt(self) -> IfStmt:
         self.expect(TokenType.IF)
         condition = self.parse_expression()
+        self.expect(TokenType.NEWLINE)
         then_branch = self.parse_block()
         elseifs = []
+        self.skip_newlines()
         while self.match(TokenType.ELSEIF):
             self.advance()
             cond = self.parse_expression()
+            self.expect(TokenType.NEWLINE)
             block = self.parse_block()
             elseifs.append((cond, block))
+            self.skip_newlines()
         else_branch = None
         if self.match(TokenType.ELSE):
             self.advance()
+            self.expect(TokenType.NEWLINE)
             else_branch = self.parse_block()
-        self.expect(TokenType.END)
         return IfStmt(condition, then_branch, elseifs, else_branch)
 
     def parse_for_stmt(self):
@@ -635,8 +704,8 @@ class Parser:
             var_name = self.parse_identifier().value
             self.advance()  # consume 'in'
             iterable = self.parse_expression()
+            self.expect(TokenType.NEWLINE)
             body = self.parse_block()
-            self.expect(TokenType.END)
             return ForEachStmt(var_name, iterable, body)
 
         init = None
@@ -662,30 +731,61 @@ class Parser:
         self.expect(TokenType.SEMICOLON)
 
         increment = None
-        if not self.match(TokenType.LBRACE):
+        if not self.match(TokenType.NEWLINE):
             increment = self.parse_expression()
             if self.match(TokenType.ASSIGN):
                 self.advance()
                 val = self.parse_expression()
                 increment = Assignment(increment, val)
 
+        self.expect(TokenType.NEWLINE)
         body = self.parse_block()
-        self.expect(TokenType.END)
         return ForStmt(init, condition, increment, body)
 
+    def parse_while_stmt(self):
+        self.expect(TokenType.WHILE)
+        condition = self.parse_expression()
+        self.expect(TokenType.NEWLINE)
+        body = self.parse_block()
+        return WhileStmt(condition, body)
+
+    def parse_out_stmt(self):
+        self.expect(TokenType.OUT)
+        self.expect(TokenType.LPAREN)
+        args = []
+        if not self.match(TokenType.RPAREN):
+            args.append(self.parse_expression())
+            while self.match(TokenType.COMMA):
+                self.advance()
+                args.append(self.parse_expression())
+        self.expect(TokenType.RPAREN)
+        return ExprStmt(CallExpr("printf", args))
+
     def parse_return_stmt(self) -> ReturnStmt:
-        if self.match(TokenType.OUT):
-            self.advance()
-        elif self.match(TokenType.RETURN):
-            self.advance()
+        self.expect(TokenType.RETURN)
         value = None
-        if not self.match(TokenType.SEMICOLON):
+        if not self.match(TokenType.NEWLINE, TokenType.DEDENT, TokenType.EOF):
             value = self.parse_expression()
-        self.expect(TokenType.SEMICOLON)
         return ReturnStmt(value)
 
+    def parse_c_raw_stmt(self):
+        self.expect(TokenType.C)
+        self.expect(TokenType.ASSIGN)
+        code = self.expect(TokenType.STRING).value
+        return CRawStmt(code)
+
     def parse_expression(self):
-        return self.parse_or()
+        return self.parse_ternary()
+
+    def parse_ternary(self):
+        condition = self.parse_or()
+        if self.match(TokenType.QUESTION):
+            self.advance()
+            then_expr = self.parse_expression()
+            self.expect(TokenType.COLON)
+            else_expr = self.parse_expression()
+            return TernaryOp(condition, then_expr, else_expr)
+        return condition
 
     def parse_or(self):
         left = self.parse_and()
@@ -828,7 +928,6 @@ class CGenerator:
             self.output.append("")
 
     def generate(self, program: Program) -> str:
-        # Deduplicate while building lookup tables
         seen_structs = set()
         seen_funcs = set()
         for decl in program.declarations:
@@ -848,17 +947,14 @@ class CGenerator:
         self.emit("#include <stdbool.h>")
         self.emit("")
 
-        # Struct declarations first
         for name in self.structs:
             self.emit_struct_decl(self.structs[name])
         self.emit("")
 
-        # Forward declarations
         for name in self.functions:
             self.emit_forward_decl(self.functions[name])
         self.emit("")
 
-        # Function definitions
         for name in self.functions:
             self.emit_func_decl(self.functions[name])
 
@@ -929,6 +1025,8 @@ class CGenerator:
             self.emit_if_stmt(stmt)
         elif isinstance(stmt, ForStmt):
             self.emit_for_stmt(stmt)
+        elif isinstance(stmt, WhileStmt):
+            self.emit_while_stmt(stmt)
         elif isinstance(stmt, ForEachStmt):
             self.emit_foreach_stmt(stmt)
         elif isinstance(stmt, ReturnStmt):
@@ -942,18 +1040,19 @@ class CGenerator:
             self.emit("continue;")
         elif isinstance(stmt, ExprStmt):
             self.emit(f"{self.emit_expr(stmt.expr)};")
+        elif isinstance(stmt, CRawStmt):
+            self.emit(stmt.code)
         elif isinstance(stmt, Block):
             self.emit_block(stmt)
         else:
             raise RuntimeError(f"Unknown statement type: {type(stmt)}")
 
     def _emit_var_init(self, stmt: VarDecl) -> str:
-        """Generate the initialization part of a variable declaration."""
         ctype = self.map_type(stmt.var_type)
         if stmt.initializer:
             if isinstance(stmt.initializer, ArrayLiteral):
                 elements = ", ".join(self.emit_expr(e) for e in stmt.initializer.elements)
-                base_type = self.map_type(stmt.var_type[:-2])  # strip "[]"
+                base_type = self.map_type(stmt.var_type[:-2])
                 return f"{ctype} {stmt.name} = ({base_type}[]){{{elements}}}"
             else:
                 init = self.emit_expr(stmt.initializer)
@@ -1024,6 +1123,15 @@ class CGenerator:
         self.indent_level -= 1
         self.emit("}")
 
+    def emit_while_stmt(self, stmt: WhileStmt):
+        cond = self.emit_expr(stmt.condition)
+        self.emit(f"while ({cond}) {{")
+        self.indent_level += 1
+        for s in stmt.body.statements:
+            self.emit_stmt(s)
+        self.indent_level -= 1
+        self.emit("}")
+
     def emit_foreach_stmt(self, stmt: ForEachStmt):
         self.emit(f"// foreach: {stmt.var_name} in iterable")
         self.emit("{")
@@ -1055,6 +1163,11 @@ class CGenerator:
             return "true" if expr.value else "false"
         if isinstance(expr, Identifier):
             return expr.name
+        if isinstance(expr, TernaryOp):
+            cond = self.emit_expr(expr.condition)
+            then_e = self.emit_expr(expr.then_expr)
+            else_e = self.emit_expr(expr.else_expr)
+            return f"({cond} ? {then_e} : {else_e})"
         if isinstance(expr, BinaryOp):
             left = self.emit_expr(expr.left)
             right = self.emit_expr(expr.right)
@@ -1084,8 +1197,6 @@ class CGenerator:
 # =============================================================================
 
 class ImportResolver:
-    """Resolves get("path") imports by recursively loading and merging Sol files."""
-
     def __init__(self, base_dir: str):
         self.base_dir = base_dir
         self.loaded = set()
@@ -1182,7 +1293,6 @@ def compile_sol(source_path: str, run: bool = False, keep_c: bool = False) -> st
         print(result.stderr)
         raise RuntimeError("Compilation failed")
 
-    # FIX: Make executable on Unix-like systems — catch ALL exceptions, OR permissions
     if sys.platform != 'win32':
         try:
             current_mode = os.stat(exe_path).st_mode
@@ -1198,7 +1308,6 @@ def compile_sol(source_path: str, run: bool = False, keep_c: bool = False) -> st
         print(f"Removed intermediate C file: {c_path}")
 
     if run:
-        # Ensure executable permissions before running, then run with ./ prefix
         if sys.platform != 'win32':
             try:
                 current_mode = os.stat(exe_path).st_mode
