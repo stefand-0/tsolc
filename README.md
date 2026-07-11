@@ -2,7 +2,7 @@
 
 > **Sol — Embrace modularity, ease of use, and speed.**
 
-TSol is a lightweight systems programming language that compiles to C. It gives you the raw performance of C with a cleaner, more modern syntax — and a module system that actually makes sense.
+TSol is a lightweight scripting language that compiles to C. It gives you the raw performance of C with a cleaner, more modern syntax — and a module system that actually makes sense.
 
 ---
 
