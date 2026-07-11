@@ -61,7 +61,7 @@ main() out int
     // --------------------------------------------------------
     // Declare variables with: type name -> value
     // The `->` is Sol's assignment operator. It avoids
-    // confusion between `=` (comparison) and assignment.
+    // confusion between `==` (comparison) and assignment.
 
     int count -> 42
     int8 small -> 127
