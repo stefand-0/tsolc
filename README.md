@@ -38,8 +38,7 @@ Requires Python 3.10+ and a C compiler (clang, gcc, or cc).
 **hello.sol**
 ```sol
 main() out int
-    string msg -> "Hello, World!"
-    out("%s\n", msg)
+    out("Hello, World!\n")
     return 0
 ```
 
@@ -55,7 +54,7 @@ tsolc hello.sol --run
 
 | Sol | C |
 |-----|---|
-| `int`, `float`, `double`, `char`, `bool` | Same |
+| `int`, `float`, `double`, `char`, | Same |
 | `string` | `char*` |
 | `int8`–`int64`, `uint8`–`uint64` | `int8_t`–`int64_t`, `uint8_t`–`uint64_t` |
 | `int[]`, `float[]`, ... | Pointer + compound literal |
@@ -112,8 +111,8 @@ elseif (x < 0)
     out("negative\n")
 else
     out("zero\n")
-
-for (int i -> 0; i < 10; i++)
+int i 
+for i -> 0; i < 10; i++
     out("%d\n", i)
 
 while (running)
@@ -133,9 +132,7 @@ int abs -> x < 0 ? -x : x
 // Output
 out("Hello, %s!\n", name)
 
-// Input
-string name
-in(name)
+// Input can be done with inline C
 ```
 
 ### Raw C Injection
@@ -143,8 +140,7 @@ in(name)
 Drop straight into C when you need it:
 
 ```sol
-C -> "#include <math.h>"
-C -> "double result = sqrt(2.0);"
+C -> "double result = 2.0;"
 ```
 
 ### Structs
