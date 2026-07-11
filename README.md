@@ -1,5 +1,5 @@
 # TSol Compiler (`tsolc`)
-
+> Stdlibs at: https://github.com/stefand-0/solstd
 > **Sol — Embrace modularity, ease of use, and speed.**
 
 Sol is a lightweight scripting language that compiles to C. It gives you the raw performance of C with a cleaner, more modern syntax — and a module system that actually makes sense.
