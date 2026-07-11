@@ -1,9 +1,8 @@
-# tsolc
-TSolC - The C transpiler for the Sol language.
+# TSol Compiler (`tsolc`)
 
 > **Sol — Embrace modularity, ease of use, and speed.**
 
-TSol is a lightweight scripting language that compiles to C. It gives you the raw performance of C with a cleaner, more modern syntax — and a module system that actually makes sense.
+TSol is a lightweight systems programming language that compiles to C. It gives you the raw performance of C with a cleaner, more modern syntax — and a module system that actually makes sense.
 
 ---
 
@@ -34,11 +33,10 @@ Requires Python 3.10+ and a C compiler (clang, gcc, or cc).
 
 **hello.sol**
 ```sol
-main() out int {
-    string msg -> "Hello, World!";
-    printf("%s\n", msg);
-    return 0;
-}
+main() out int
+    string msg -> "Hello, World!"
+    out("%s\n", msg)
+    return 0
 ```
 
 ```bash
@@ -61,24 +59,23 @@ tsolc hello.sol --run
 ### Variables & Assignment
 
 ```sol
-int count -> 42;
-float pi -> 3.14;
-string name -> "Sol";
-int[] nums -> [1, 2, 3, 4, 5];
+int count -> 42
+float pi -> 3.14
+string name -> "Sol"
+int[] nums -> [1, 2, 3, 4, 5]
 ```
 
 Assignment uses `->` to avoid confusion with `==`:
 
 ```sol
-count -> count + 1;
+count -> count + 1
 ```
 
 ### Functions
 
 ```sol
-pub square(int n) out int {
-    return n * n;
-}
+pub square(int n) out int
+    return n * n
 ```
 
 - `pub` marks the function as public (importable from other files)
@@ -87,42 +84,71 @@ pub square(int n) out int {
 ### Imports
 
 ```sol
-get("std/math.sol");
-get("utils/helpers.sol");
+get("std/math.sol")
+get("utils/helpers.sol")
 ```
 
 Paths are relative to the importing file. Subdirectories work naturally:
 
 ```sol
-get("std/io/file.sol");
-get("../shared/types.sol");
+get("std/io/file.sol")
+get("../shared/types.sol")
 ```
 
 Imports are deduplicated automatically — no header guards needed.
 
 ### Control Flow
 
-```sol
-if (x > 0) {
-    printf("positive\n");
-} elseif (x < 0) {
-    printf("negative\n");
-} else {
-    printf("zero\n");
-} end
+Indentation-based blocks — no braces, no `end` keyword:
 
-for (int i -> 0; i < 10; i++) {
-    printf("%d\n", i);
-} end
+```sol
+if (x > 0)
+    out("positive\n")
+elseif (x < 0)
+    out("negative\n")
+else
+    out("zero\n")
+
+for (int i -> 0; i < 10; i++)
+    out("%d\n", i)
+
+while (running)
+    running -> false
+```
+
+### Ternary / Guard Operator
+
+```sol
+string sign -> x > 0 ? "positive" : "negative"
+int abs -> x < 0 ? -x : x
+```
+
+### Console I/O
+
+```sol
+// Output
+out("Hello, %s!\n", name)
+
+// Input
+string name
+in(name)
+```
+
+### Raw C Injection
+
+Drop straight into C when you need it:
+
+```sol
+C -> "#include <math.h>"
+C -> "double result = sqrt(2.0);"
 ```
 
 ### Structs
 
 ```sol
-struct Point {
-    float x;
-    float y;
-}
+struct Point
+    float x
+    float y
 ```
 
 ---
@@ -140,14 +166,12 @@ myproject/
 
 **main.sol**
 ```sol
-get("std/math.sol");
-get("utils/string.sol");
+get("std/math.sol")
 
-main() out int {
-    int result -> pow(2, 10);
-    printf("2^10 = %d\n", result);
-    return 0;
-}
+main() out int
+    int result -> pow(2, 10)
+    out("2^10 = %d\n", result)
+    return 0
 ```
 
 ---
@@ -164,7 +188,7 @@ tsolc file.sol --keep-c  # Keep the generated .c file
 
 ## How It Works
 
-1. **Parse** — Sol source is tokenized and parsed into an AST
+1. **Parse** — Sol source is tokenized and parsed into an AST (indentation-aware)
 2. **Resolve** — `get()` imports are recursively resolved and merged
 3. **Generate** — Clean C11 code is emitted (structs first, then forward declarations, then definitions)
 4. **Compile** — clang/gcc compiles the C to a native executable
