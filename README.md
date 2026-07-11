@@ -29,6 +29,9 @@ Requires Python 3.10+ and a C compiler (clang, gcc, or cc).
 
 ---
 
+## Also see:
+`showcase/showcase.sol`
+
 ## Quick Start
 
 **hello.sol**
